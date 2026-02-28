@@ -1,0 +1,50 @@
+"""
+TrafficVQA-stage_1:  
+"""
+# 1、top_matches: 每个问题单词最匹配的视觉对象/动作的索引
+corrected_scores_m, top_matches_m, basic_scores_m, temporal_weights_m = self.BatchTemporalConsistencyFilter(
+    question_embedding_bert.permute(1, 0, 2), video_motion_feat)
+indices_m = (top_matches_m >= 0.5).float()
+semantic_m = video_motion_feat.view(batch_size, -1, video_motion_feat.shape[-1]) * indices_m
+semantic_m = semantic_m + video_motion_feat.view(batch_size, -1, video_motion_feat.shape[-1])
+
+video_appearance_feat = video_appearance_feat * indices_m.unsqueeze(-1)
+corrected_scores_a, top_matches_a, basic_scores_a, temporal_weights_a = self.BatchTemporalConsistencyFilter(
+    question_embedding_bert.permute(1, 0, 2),
+    video_appearance_feat.view(batch_size, -1, video_appearance_feat.shape[-1]))
+indices_a = (top_matches_a >= 0.5).float()
+semantic_a = video_appearance_feat.view(batch_size, -1, video_appearance_feat.shape[-1]) * indices_a
+semantic_a = (semantic_a + video_appearance_feat.view(batch_size, -1, video_appearance_feat.shape[-1])).view(
+    batch_size, num_clips, num_frames, -1)  # [B,16,8,512]
+
+semantic_a, semantic_m, question_am = self.visual_input_unit(semantic_a, semantic_m, question_embedding_bert)
+"""
+TrafficVQA-stage_2: 
+"""
+video_feat = ((semantic_a + semantic_m) / 2.).permute(1, 0, 2)
+kg_1, kg_idx = self.handler(
+    question_embedding_bert.permute(1, 0, 2), video_feat, kg_0,
+    retrieve_top_k=top_k,
+    denoise_threshold=0.5
+)
+# kg_1 = kg_0.unsqueeze(0).repeat(batch_size, 1, 1)
+
+"""
+TrafficVQA-stage_3: 
+"""
+fusion_visual = torch.cat((semantic_a, semantic_m), dim=-1)
+fusion_visual = self.fuse_Transformer(None, fusion_visual, fusion_visual)
+fusion_visual = self.mm_decode1(fusion_visual)  # [48,64,512]
+# fusion_mm_fea = fusion_visual
+
+w = nn.Softmax(dim=-1)(torch.bmm(fusion_visual.permute(1, 0, 2), question_embedding_bert.permute(1, 2, 0)))  # [64,48,32]
+fusion_amq_fea = torch.bmm(w, question_embedding_bert.permute(1, 0, 2)).permute(1, 0, 2) + fusion_visual  # [48,64,512]
+kg_1 = torch.max(kg_1, dim=1)[0].unsqueeze(0).repeat(fusion_amq_fea.shape[0], 1, 1)  # [48,64,512]
+fusion_mmk = torch.cat((fusion_amq_fea, kg_1), dim=-1)
+fusion_mmk = self.fuse_Transformer(None, fusion_mmk, fusion_mmk)
+fusion_mm_fea = self.mm_decode1(fusion_mmk)  # [N,B,512]
+
+loss = []
+
+sp_cl_loss = self.space_cl_loss(self.weight_a * semantic_a.permute(1, 0, 2), self.weight_m * semantic_m.permute(1, 0, 2))
+sp_cl_fine_loss = self.space_cl_fine_loss(self.weight_a * semantic_a.permute(1, 0, 2), self.weight_m * semantic_m.permute(1, 0, 2))
