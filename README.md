@@ -20,3 +20,11 @@ Our solution introduces a **Temporal Consistency Correction Module (TCCM)** and 
 | **Answer Reasoner** | Employs Transformer‑based cross‑modal fusion and a coarse‑to‑fine contrastive loss with **adaptive weight factors** (μₐ, μₘ) that dynamically balance appearance and motion feature importance. |
 
 The final loss combines a video‑question contrastive term (frame‑level + clip‑level) and an InfoNCE classification loss against candidate answers.
+
+## 3. How to Reproduce
+
+1. **Environment**: Python 3.8+, PyTorch 1.12+, CUDA 11.3.
+2. **Data**: Download SUTD‑TrafficQA and the traffic knowledge graph (see supplementary).
+3. **Pretrained backbones**: Swin‑L, Video Swin‑B, BERT‑base (frozen).
+4. **Training**: Run `python train.py --config configs/cmsr.yaml`. Default settings: batch size 64, learning rate 1e‑4, 100 epochs.
+5. **Evaluation**: Run `python evaluate.py --checkpoint <path>`.
